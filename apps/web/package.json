@@ -1,0 +1,9 @@
+{
+  "name": "@learnloop/web",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint --config ../../eslint.config.mjs src",
+    "test": "vitest run --passWithNoTests"
+  }
+}
