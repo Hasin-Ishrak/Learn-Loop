@@ -242,6 +242,11 @@ All `infra:*` and `db:*` scripts must be run from the repository root.
 `packages/db` also has: `db:generate:custom`, `db:studio`, `db:check`,
 `build`, `typecheck`.
 
+`apps/web` scripts: `dev` (Vite on port 5173), `build`, `start` (preview),
+`typecheck`, `lint`, `test`. Web depends on `@learnloop/shared` being built
+first; `pnpm dev` / `pnpm build` handle this via Turbo `dependsOn: ^build`,
+but from a clean checkout run `pnpm --filter @learnloop/shared build` once.
+
 `apps/server/package.json`:
 
 | Command | Action |
@@ -414,6 +419,10 @@ for the upcoming `packages/db` integration tests.
     BullMQ owns its connections.
 24. **Bull Board is dev-only** (`NODE_ENV !== "production"`); replaced by real
     auth/ABAC in Module 1.
+25. **Web validates every API response with a shared Zod schema** from
+    `@learnloop/shared` (`HealthResponseSchema`). No unvalidated API data in
+    components.
+26. **Ports:** web dev server 5173, API 3000. Web uses `VITE_API_URL`.
 
 ---
 

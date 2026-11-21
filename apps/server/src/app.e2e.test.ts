@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "./app.module.js";
 import { DatabaseService } from "./common/database/database.service.js";
 import { RedisService } from "./common/redis/redis.service.js";
+import { getCorsOptions } from "./common/cors/cors-options.js";
 import { parseEnv } from "./common/config/env.js";
 
 const testEnv = parseEnv({
@@ -14,6 +15,7 @@ const testEnv = parseEnv({
   LOG_LEVEL: "silent",
   DATABASE_URL: "postgresql://learnloop_app:learnloop_app_dev@localhost:5432/learnloop",
   REDIS_URL: "redis://localhost:6379",
+  WEB_ORIGIN: "http://localhost:5173",
 });
 
 
@@ -31,6 +33,7 @@ describe("health endpoints", () => {
         .useValue({ ping: () => Promise.resolve("PONG"), quit: () => Promise.resolve() })
         .compile();
       app = moduleRef.createNestApplication();
+      app.enableCors(getCorsOptions(testEnv));
       await app.init();
     });
     afterAll(async () => app.close());
@@ -62,6 +65,7 @@ describe("health endpoints", () => {
         .useValue({ ping: () => Promise.resolve("PONG"), quit: () => Promise.resolve() })
         .compile();
       app = moduleRef.createNestApplication();
+      app.enableCors(getCorsOptions(testEnv));
       await app.init();
     });
     afterAll(async () => app.close());
@@ -91,6 +95,7 @@ describe("health endpoints", () => {
         .useValue({ ping: () => Promise.reject(new Error("boom")), quit: () => Promise.resolve() })
         .compile();
       app = moduleRef.createNestApplication();
+      app.enableCors(getCorsOptions(testEnv));
       await app.init();
     });
     afterAll(async () => app.close());
@@ -101,5 +106,39 @@ describe("health endpoints", () => {
         .expect(HttpStatus.SERVICE_UNAVAILABLE);
       expect(res.body.checks.redis).toBe("down");
     });
+  });
+});
+
+describe("CORS", () => {
+  let app: INestApplication;
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule.forRoot(testEnv)],
+    })
+      .overrideProvider(DatabaseService)
+      .useValue({ pool: { query: () => Promise.resolve(), end: () => Promise.resolve() } })
+      .overrideProvider(RedisService)
+      .useValue({ ping: () => Promise.resolve("PONG"), quit: () => Promise.resolve() })
+      .compile();
+    app = moduleRef.createNestApplication();
+    app.enableCors(getCorsOptions(testEnv));
+    await app.init();
+  });
+  afterAll(async () => app.close());
+
+  it("allowlisted origin gets Access-Control-Allow-Origin", async () => {
+    const res = await request(app.getHttpServer())
+      .get("/health/live")
+      .set("Origin", "http://localhost:5173")
+      .expect(200);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:5173");
+  });
+
+  it("unknown origin gets no Access-Control-Allow-Origin", async () => {
+    const res = await request(app.getHttpServer())
+      .get("/health/live")
+      .set("Origin", "https://evil.example")
+      .expect(200);
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
   });
 });

@@ -21,3 +21,6 @@ Thumbs.db
 # Editor settings
 .idea/
 .vscode/
+
+.agents/
+skills-lock.json

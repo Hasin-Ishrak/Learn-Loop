@@ -4,6 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import { Logger } from "nestjs-pino";
 import { AppModule } from "./app.module.js";
 import { loadEnv } from "./common/config/env.js";
+import { getCorsOptions } from "./common/cors/cors-options.js";
 
 async function bootstrap(): Promise<void> {
   // Validate env before Nest is constructed so misconfiguration fails fast.
@@ -14,6 +15,8 @@ async function bootstrap(): Promise<void> {
   });
 
   app.useLogger(app.get(Logger));
+  // CORS allowlist: only the configured web origin. Never "*" (credentials are on).
+  app.enableCors(getCorsOptions(env));
   // Handles SIGTERM/SIGINT and runs OnModuleDestroy/OnApplicationShutdown hooks.
   app.enableShutdownHooks();
 
