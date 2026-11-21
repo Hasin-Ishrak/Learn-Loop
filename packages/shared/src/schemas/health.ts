@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 /** Overall health of a service. */
-export const HealthStatusSchema = z.enum(["ok", "degraded", "error"]);
+export const HealthStatusSchema = z.enum(["ok", "degraded", "error", "unavailable"]);
 
-/** State of a single dependency. `not_configured` is used until real checks exist. */
-export const HealthCheckStateSchema = z.enum(["ok", "error", "not_configured"]);
+/** State of a single dependency. */
+export const HealthCheckStateSchema = z.enum(["up", "down", "not_configured"]);
 
 /**
  * Response body for the health endpoints.

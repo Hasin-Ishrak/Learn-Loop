@@ -1,4 +1,4 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, HttpException, HttpStatus } from "@nestjs/common";
 import type { HealthResponse } from "@learnloop/shared";
 import { HealthService } from "./health.service.js";
 
@@ -12,7 +12,11 @@ export class HealthController {
   }
 
   @Get("ready")
-  ready(): HealthResponse {
-    return this.healthService.ready();
+  async ready(): Promise<HealthResponse> {
+    const result = await this.healthService.ready();
+    if (result.status !== "ok") {
+      throw new HttpException(result, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+    return result;
   }
 }

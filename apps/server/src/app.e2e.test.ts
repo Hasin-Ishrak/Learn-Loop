@@ -1,37 +1,95 @@
 import "reflect-metadata";
+import { HttpStatus } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "./app.module.js";
+import { DatabaseService } from "./common/database/database.service.js";
 import { parseEnv } from "./common/config/env.js";
 
 const testEnv = parseEnv({
   NODE_ENV: "test",
   LOG_LEVEL: "silent",
-  DATABASE_URL: "postgresql://learnloop:learnloop@localhost:5432/learnloop",
+  DATABASE_URL: "postgresql://learnloop_app:learnloop_app_dev@localhost:5432/learnloop",
   REDIS_URL: "redis://localhost:6379",
 });
 
-describe("GET /health/live", () => {
-  let app: INestApplication;
+describe("health endpoints", () => {
+  describe("database up", () => {
+    let app: INestApplication;
 
-  beforeAll(async () => {
-    // Boots the real API module (middleware included) without listening.
-    app = await NestFactory.create(AppModule.forRoot(testEnv), { logger: false });
-    await app.init();
+    beforeAll(async () => {
+      const moduleRef = await Test.createTestingModule({
+        imports: [AppModule.forRoot(testEnv)],
+      })
+        .overrideProvider(DatabaseService)
+        .useValue({
+          db: { execute: () => Promise.resolve() },
+          pool: { query: () => Promise.resolve(), end: () => Promise.resolve() },
+        })
+        .compile();
+      app = moduleRef.createNestApplication();
+      await app.init();
+    });
+
+    afterAll(async () => {
+      await app.close();
+    });
+
+    it("live returns 200 with status ok and a correlation ID", async () => {
+      const response = await request(app.getHttpServer())
+        .get("/health/live")
+        .expect(200);
+
+      expect(response.body).toEqual({ status: "ok" });
+      expect(response.headers["x-request-id"]).toBeTruthy();
+    });
+
+    it("ready returns 200 with database up", async () => {
+      const response = await request(app.getHttpServer())
+        .get("/health/ready")
+        .expect(200);
+
+      expect(response.body).toEqual({
+        status: "ok",
+        checks: { database: "up", redis: "not_configured" },
+      });
+    });
   });
 
-  afterAll(async () => {
-    await app.close();
-  });
+  describe("database down", () => {
+    let app: INestApplication;
 
-  it("returns 200 with status ok and a correlation ID", async () => {
-    const response = await request(app.getHttpServer())
-      .get("/health/live")
-      .expect(200);
+    beforeAll(async () => {
+      const moduleRef = await Test.createTestingModule({
+        imports: [AppModule.forRoot(testEnv)],
+      })
+        .overrideProvider(DatabaseService)
+        .useValue({
+          db: { execute: () => Promise.reject(new Error("boom")) },
+          pool: { query: () => Promise.reject(new Error("boom")), end: () => Promise.resolve() },
+        })
+        .compile();
+      app = moduleRef.createNestApplication();
+      await app.init();
+    });
 
-    expect(response.body).toEqual({ status: "ok" });
-    expect(response.headers["x-request-id"]).toBeTruthy();
+    afterAll(async () => {
+      await app.close();
+    });
+
+    it("live returns 200 (independent of the database)", async () => {
+      await request(app.getHttpServer()).get("/health/live").expect(200);
+    });
+
+    it("ready returns 503 with database down", async () => {
+      const response = await request(app.getHttpServer())
+        .get("/health/ready")
+        .expect(HttpStatus.SERVICE_UNAVAILABLE);
+
+      expect(response.body.status).toBe("unavailable");
+      expect(response.body.checks.database).toBe("down");
+    });
   });
 });

@@ -2,6 +2,7 @@ import { DynamicModule, Module } from "@nestjs/common";
 import { AppConfigModule } from "./common/config/config.module.js";
 import type { Env } from "./common/config/env.js";
 import { ContextModule } from "./common/context/context.module.js";
+import { DatabaseModule } from "./common/database/database.module.js";
 import { AppLoggerModule } from "./common/logging/logger.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
 
@@ -18,6 +19,7 @@ export class AppModule {
         AppConfigModule.forRoot(env),
         AppLoggerModule.forRoot(env),
         ContextModule.forRoot(),
+        DatabaseModule.forRoot(env),
         HealthModule,
       ],
     };

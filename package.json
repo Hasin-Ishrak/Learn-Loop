@@ -10,12 +10,15 @@
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
     "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "infra:up": "docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --wait",
     "infra:down": "docker compose --env-file infra/.env -f infra/docker-compose.yml down",
     "infra:reset": "docker compose --env-file infra/.env -f infra/docker-compose.yml down -v",
     "infra:logs": "docker compose --env-file infra/.env -f infra/docker-compose.yml logs -f",
-    "infra:ps": "docker compose --env-file infra/.env -f infra/docker-compose.yml ps"
+    "infra:ps": "docker compose --env-file infra/.env -f infra/docker-compose.yml ps",
+    "db:migrate": "pnpm --filter @learnloop/db db:migrate",
+    "db:generate": "pnpm --filter @learnloop/db db:generate"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

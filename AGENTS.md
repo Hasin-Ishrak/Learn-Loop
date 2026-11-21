@@ -51,6 +51,13 @@ Node target: **22**. Local Windows machine used for verification ran Node
 - Dockerfile for a production image (all three entry points share one image).
 - Local infrastructure stack in `infra/`: Postgres 16 + pgvector, Redis 7
   (AOF), Mailpit, with a two-role Postgres model and init scripts.
+- `@learnloop/db` package: Drizzle ORM + pg, schema (`institutions` placeholder),
+  `createDb`, migrations (`0000` + custom `0001_extensions`), `db:check`.
+- NestJS API connected to Postgres as `learnloop_app` via `DatabaseModule`;
+  `/health/ready` runs a real `SELECT 1` with a 2s timeout, returns 503 on
+  failure; `/health/live` stays independent. Worker and scheduler do not connect.
+- Drizzle migrations run as `learnloop_owner` (`DATABASE_MIGRATION_URL`).
+- ADR 0003 documenting the two-role model.
 - All checks (`build`, `typecheck`, `lint`, `test`) pass.
 
 ### Not done yet
@@ -60,7 +67,10 @@ Node target: **22**. Local Windows machine used for verification ran Node
 - No worker processors or scheduled jobs.
 - No feature modules beyond health.
 - No web app.
-- Nothing in the app reads `DATABASE_URL` / `REDIS_URL` yet; no DB client.
+- `packages/db` is scaffolded with a throwaway `institutions` table only; no
+  real domain schema yet.
+- `/health/ready` checks Postgres only; Redis check is still `not_configured`.
+- Worker and scheduler do not connect to the database yet.
 - `infra/docker-compose.yml` contains infrastructure only; the app image
   (`apps/server/Dockerfile`) is not part of that compose file.
 
@@ -225,9 +235,12 @@ Root `package.json` (Turborepo):
 | `pnpm infra:reset` | **Destructive:** `down -v`, deletes DB/Redis data |
 | `pnpm infra:logs` | Follow logs from all infra services |
 | `pnpm infra:ps` | Show infra container status/health |
+| `pnpm db:migrate` | Run Drizzle migrations as `learnloop_owner` |
+| `pnpm db:generate` | Generate a new Drizzle migration from the schema |
 
-All `infra:*` scripts use `--env-file infra/.env -f infra/docker-compose.yml`,
-so they must be run from the repository root.
+All `infra:*` and `db:*` scripts must be run from the repository root.
+`packages/db` also has: `db:generate:custom`, `db:studio`, `db:check`,
+`build`, `typecheck`.
 
 `apps/server/package.json`:
 
@@ -382,6 +395,12 @@ for the upcoming `packages/db` integration tests.
     `infra/postgres/init/`, run `pnpm infra:reset` then `pnpm infra:up`.
 15. **Shell scripts are LF.** `.gitattributes` enforces `*.sh text eol=lf`;
     CRLF breaks the container entrypoint (`bad interpreter`).
+16. **Two connection strings.** The server uses `DATABASE_URL` (app role,
+    `learnloop_app`); migrations and drizzle-kit use `DATABASE_MIGRATION_URL`
+    (owner role, `learnloop_owner`). Never run migrations as the app role and
+    never point the server at the owner role.
+17. **Never edit a committed migration.** Add a new one instead. drizzle tracks
+    applied migrations in `drizzle.__drizzle_migrations`.
 
 ---
 
@@ -419,12 +438,34 @@ packages/config/
   tsconfig.base.json
   tsconfig.node.json
 
+packages/db/
+  package.json
+  tsconfig.json
+  tsconfig.build.json
+  drizzle.config.ts
+  .env.example
+  src/
+    schema.ts
+    client.ts
+    index.ts
+    scripts/check.ts
+  migrations/
+    0000_plain_talkback.sql
+    0001_extensions.sql
+    meta/_journal.json
+    meta/0000_snapshot.json
+    meta/0001_snapshot.json
+
 packages/shared/
   package.json
   tsconfig.json
   tsconfig.build.json
   src/index.ts
   src/schemas/health.ts
+
+docs/
+  adr/
+    0003-two-database-roles.md
 
 infra/
   .env                        # gitignored local dev credentials
@@ -597,3 +638,80 @@ Pick these up in later phases (do not add placeholders now):
 - Changing a password in `infra/.env` after the volume exists has no effect
   (init scripts already ran) → `pnpm infra:reset`.
 - Postgres version confirmed `16.16`.
+
+### 2026-11-21 — Drizzle ORM, database package, real /health/ready
+
+**Created**
+
+- `packages/db`: package, tsconfigs, schema (`institutions` placeholder), client
+  (`createDb`), index, drizzle config, `.env.example`, migrations (`0000` +
+  custom `0001_extensions`), `db:check` script.
+- `apps/server/src/common/database/database.module.ts` + `database.service.ts`.
+- `docs/adr/0003-two-database-roles.md`.
+
+**Changed**
+
+- `packages/shared/src/schemas/health.ts`: `HealthCheckStateSchema` now
+  `["up","down","not_configured"]`; `HealthStatusSchema` gained `"unavailable"`.
+- `apps/server`: `@learnloop/db` dependency, `@nestjs/testing` devDep,
+  `DatabaseModule` in `AppModule`, `HealthService`/`HealthController` now run a
+  real `SELECT 1` with a 2s timeout and return 503 on failure.
+- `apps/server/src/app.e2e.test.ts`: rewritten with `Test.createTestingModule`
+  and a fake `DatabaseService` (up + down cases).
+- Root `package.json`: `db:migrate`, `db:generate`, `typecheck`.
+- `turbo.json`: `typecheck` task.
+- `AGENTS.md`: scripts, conventions, file map, this entry.
+
+**Decisions**
+
+- `pool.on("error", ...)` in `createDb` to prevent unhandled 'error' events
+  from crashing the process when Postgres restarts.
+- Health check uses `pool.query("SELECT 1")` (not drizzle's `db.execute`) to
+  avoid importing `drizzle-orm` into the server.
+- `vector` is untrusted, so the custom migration wraps `CREATE EXTENSION vector`
+  in a `DO $$ ... EXCEPTION WHEN insufficient_privilege` block (no-op + NOTICE
+  where the role lacks privilege). `pg_trgm` and `pgcrypto` are trusted and
+  create normally. Documented in the ADR.
+- drizzle-kit internally uses tsx to load `schema.ts` (dev-tooling only).
+- `packages/db/.env` holds both `DATABASE_URL` and `DATABASE_MIGRATION_URL`.
+
+**Verified**
+
+- `pnpm build`, `pnpm typecheck`, `pnpm lint` pass.
+- `pnpm db:migrate`: creates `institutions` + `drizzle.__drizzle_migrations`;
+  second run is a no-op.
+- `pnpm --filter @learnloop/db db:check`: all 7 PASS.
+- App role: INSERT/SELECT on `institutions` work; DROP fails with
+  "must be owner of table institutions".
+- `/health/ready`: 200 (database up) → 503 within ~90ms on `docker stop
+  learnloop-postgres` → `/health/live` stays 200 → 200 again after restart
+  without restarting the API.
+- `pnpm test`: 2 files / 6 tests pass.
+
+### 2026-11-21 — Local `apps/server/.env` aligned with the two-role stack
+
+**Changed**
+
+- `apps/server/.env` (local, gitignored, user-owned): `DATABASE_URL` now uses
+  `learnloop_app` (`postgresql://learnloop_app:learnloop_app_dev@localhost:5432/learnloop`),
+  and a commented `DATABASE_MIGRATION_URL` for `learnloop_owner` was added.
+  `REDIS_URL` unchanged.
+
+**Verified**
+
+- Password parsed from `apps/server/.env` equals `LEARNLOOP_APP_PASSWORD` in
+  `infra/.env`; the commented migration URL equals `LEARNLOOP_OWNER_PASSWORD`.
+- TCP (SCRAM) auth with those exact credentials works:
+  `current_user = learnloop_app`, `current_database = learnloop`.
+- `node dist/main.api.js` with cwd `apps/server` (so `process.loadEnvFile()`
+  picks up the real `.env`) starts cleanly; `/health/live` and `/health/ready`
+  return 200.
+- `git check-ignore` still reports `apps/server/.env` as ignored.
+- Stopped a stale `node dist/main.api.js` process from the earlier temp-deploy
+  test that was still listening on `:3100`.
+
+**Note**
+
+- The env schema only validates `DATABASE_URL` as a URL, so a wrong role or
+  password still boots. Failures will surface when the DB client lands; the
+  `infra/.env` values are the source of truth for local credentials.
