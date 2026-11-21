@@ -1,12 +1,23 @@
+# Dependencies and build output
 node_modules/
 .pnpm-store/
 dist/
 build/
 coverage/
 .turbo/
+*.tsbuildinfo
+.eslintcache
+
+# Local environment files; keep example templates versioned
 .env
 .env.*
 !.env.example
+
+# Logs and operating-system files
 *.log
 .DS_Store
 Thumbs.db
+
+# Editor settings
+.idea/
+.vscode/

@@ -1,1 +1,5 @@
 * text=auto eol=lf
+
+# Shell scripts are executed inside Linux containers; CRLF gives
+# "bad interpreter: /bin/bash^M" errors. Always check these out with LF.
+*.sh text eol=lf

@@ -1,0 +1,16 @@
+# Build output and dependencies are always produced inside the image.
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.turbo
+**/.env
+!**/.env.example
+
+# Repository metadata / local tooling.
+.git
+.gitignore
+.pnpm-store
+**/*.log
+.DS_Store
+Thumbs.db

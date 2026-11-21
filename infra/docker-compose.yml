@@ -1,31 +1,88 @@
+name: learnloop
+
+# Local development infrastructure only. The application itself is NOT part of
+# this compose file; it runs on the host (pnpm dev).
+#
+# Values come from infra/.env (see infra/.env.example). Every command in the
+# root package.json passes `--env-file infra/.env`.
+# Paths are relative to this file, so it can be run from any directory.
+
 services:
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg16
+    container_name: learnloop-postgres
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-learnloop}
-      POSTGRES_USER: ${POSTGRES_USER:-learnloop}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-learnloop}
+      # Bootstrap superuser. Only used by /docker-entrypoint-initdb.d scripts and
+      # by infra tooling; the application never connects as this role.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-learnloop_dev_postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      # Consumed by postgres/init/01-roles.sh to create the two application roles
+      # without hardcoding passwords in SQL.
+      LEARNLOOP_OWNER_PASSWORD: ${LEARNLOOP_OWNER_PASSWORD:-learnloop_owner_dev}
+      LEARNLOOP_APP_PASSWORD: ${LEARNLOOP_APP_PASSWORD:-learnloop_app_dev}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - learnloop_pgdata:/var/lib/postgresql/data
+      # Runs only when the data directory is empty (i.e. on first start or after
+      # `pnpm infra:reset`).
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\"",
+        ]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - learnloop-net
+
   redis:
     image: redis:7-alpine
+    container_name: learnloop-redis
+    # appendonly yes => AOF persistence in the named volume.
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
-      - redis-data:/data
+      - learnloop_redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 3s
-      retries: 5
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - learnloop-net
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: learnloop-mailpit
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # web UI / HTTP API
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8025/livez"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - learnloop-net
 
 volumes:
-  postgres-data:
-  redis-data:
+  learnloop_pgdata:
+    name: learnloop_pgdata
+  learnloop_redisdata:
+    name: learnloop_redisdata
+
+networks:
+  learnloop-net:
+    name: learnloop-net
