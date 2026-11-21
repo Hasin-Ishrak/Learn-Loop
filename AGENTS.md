@@ -401,6 +401,19 @@ for the upcoming `packages/db` integration tests.
     never point the server at the owner role.
 17. **Never edit a committed migration.** Add a new one instead. drizzle tracks
     applied migrations in `drizzle.__drizzle_migrations`.
+18. **Queue names come from `QUEUE_NAMES`** in `@learnloop/shared`; never
+    hardcode a queue name string.
+19. **Deterministic job IDs for idempotency:** callers may pass `jobKey`, which
+    becomes the BullMQ `jobId`; duplicate keys are ignored.
+20. **Validate job data with Zod in the processor** (`DemoPingJobSchema` style).
+21. **Workers never hold sockets;** the API process never registers
+    `@Processor` classes.
+22. **Worker connections use `maxRetriesPerRequest: null`** (BullMQ requirement
+    for blocking commands). Producer (API) connections keep the ioredis default.
+23. **Do not reuse the general `RedisService` client for BullMQ workers** —
+    BullMQ owns its connections.
+24. **Bull Board is dev-only** (`NODE_ENV !== "production"`); replaced by real
+    auth/ABAC in Module 1.
 
 ---
 
